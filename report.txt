@@ -1,0 +1,115 @@
+源代码:
+word.lex
+parse.y
+
+编译方式(windows): 
+	>win_flex word.lex
+	>win_bison -d parse.y
+	>gcc parse.tab.c lex.yy.c
+	
+输出文件：
+lex.yy.c
+parse.tab.c
+parse.tab.h
+a.exe
+
+样例数据(test.txt)：
+((1+2)*3/(55-53)+100)-1
+
+样例测试(windows)：
+	>a test.txt
+	
+样例输出(windows)：
+int F->num F=1
+int T->F T=1
+int E->T E=1
+int F->num F=2
+int T->F T=2
+int E->E+T E=3
+int F->(E) F=3
+int T->F T=3
+int F->num F=3
+int T->T*F T=9
+int F->num F=55
+int T->F T=55
+int E->T E=55
+int F->num F=53
+int T->F T=53
+int E->E-T E=2
+int F->(E) F=2
+int T->T/F T=4
+int E->T E=4
+int F->num F=100
+int T->F T=100
+int E->E+T E=104
+int F->(E) F=104
+int T->F T=104
+int E->T E=104
+int F->num F=1
+int T->F T=1
+int E->E-T E=103
+
+样例数据(test.txt)：
+((1+2)*3/(55-53.6)+100)-1
+
+样例测试(windows)：
+	>a test.txt
+	
+样例输出(windows)：
+int F->num F=1
+int T->F T=1
+int E->T E=1
+int F->num F=2
+int T->F T=2
+int E->E+T E=3
+int F->(E) F=3
+int T->F T=3
+int F->num F=3
+int T->T*F T=9
+int F->num F=55
+int T->F T=55
+int E->T E=55
+float F->num.num F=53.599998
+float T->F T=53.599998
+float E->E-T E=1.400002
+float F->(E) F=1.400002
+float T->T/F T=6.428565
+float E->T E=6.428565
+int F->num F=100
+int T->F T=100
+float E->E+T E=106.428566
+float F->(E) F=106.428566
+float T->F T=106.428566
+float E->T E=106.428566
+int F->num F=1
+int T->F T=1
+float E->E-T E=105.428566
+
+程序使用说明
+	命令行界面，不带参数则从标准输入(控制台或管道)读入算数表达式，从标准输出输出(控制台或管道)输出翻译结果。
+	如果在windows命令行输入，需要用ctrl+Z然后回车来结束输入，否则分析器将一直等待新的输入，在接受动作或遇到分析错误之前不会退出。
+	可以带一个参数指定一个输入文件，对他进行解析并将解析结果输出到标准输出。
+	语法解析器接受的语法是：
+		E->E+T|E-T|T
+		T->T*F|T/F|F
+		F->(E)|num|num.num
+	其中num是十进制数字串[0-9]+,值为atoi(num)转换得到的int型, num.num是十进制表示的浮点数,值由这样的算法产生：
+		float f=$3;
+		while(f>=1) f/=10;
+		$<f>$=$1+f;
+	这里$1表示第一个num的值，$3表示第二个num的值，%token声明表明了num记号是整数型，因此第一句存在C语言隐式类型转换。$<f>$表示num.num规约为F的浮点值。
+	每进行一次规约，就输出一行，内容为规约后非终结符的类型、采用的产生式、规约后非终结符的值。
+		
+源代码说明
+	word.lex:
+	词法解析器。
+	
+	parse.y:
+	yacc代码，词法分析器给出的token序列，根据文法
+		E->E+T|E-T|T
+		T->T*F|T/F|F
+		F->(E)|num|num.num
+	自底向上分析。它每使用一个产生式进行规约，就进行对应的语义过程(翻译方案)。
+	在这个翻译程序中，每一个非终结符有两个综合属性：值和类型。值通过yacc框架自带的值栈存储，第16行的%union声明语句声明了yacc值栈的元素类型为C语言int型和float型的联合，NUM标记被声明为整数型。类型属性在语义过程中实现：第11行声明了类型属性的类型enum Type{INT,FLOAT,ERR}，分别表示整数、浮点、错误类型。type[]数组为这个类型的栈，两个方法pop()和push(Type)用来对其进行操作。
+	翻译方案中，每当进行一次规约，已知yacc框架自动从值栈中弹出产生式右端的标记值，于是我也从type[]中弹出两个Type类型值，对应产生式右端标记的类型。根据这些类型和值，计算出产生式左端非终结符的值和类型，yacc框架自动压这个值入栈，而我手动将它的值压入type[]栈。
+	非终结符的类型最开始都来自两条生成式F->num|num.num，使用它们进行规约时，yacc是从词法分析器得到的右侧标记的值，F->num一定为整数型，F->num.num一定为浮点型，在这两个产生式的翻译方案中不需要从type[]弹出类型(因为num是语法树的叶子节点，它的综合属性不从它的儿子节点计算得到——它没有儿子——而是初始化为INT类型)，只需要压入F的类型。
